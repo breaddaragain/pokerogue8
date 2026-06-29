@@ -173,7 +173,7 @@ export class GameData {
       [VoucherType.REGULAR]: 0,
       [VoucherType.PLUS]: 0,
       [VoucherType.PREMIUM]: 0,
-      [VoucherType.GOLDEN]: 0,
+      [VoucherType.GOLDEN]: 30,
     };
     this.eggs = [];
     this.eggPity = [0, 0, 0, 0];
