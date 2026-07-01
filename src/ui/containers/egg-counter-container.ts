@@ -10,6 +10,8 @@ import { addWindow } from "#ui/ui-theme";
 export class EggCounterContainer extends Phaser.GameObjects.Container {
   private readonly WINDOW_DEFAULT_WIDTH = 37;
   private readonly WINDOW_MEDIUM_WIDTH = 42;
+  // Added the new constant for 3rd digit numbers (100+)
+  private readonly WINDOW_LARGE_WIDTH = 47; 
   private readonly WINDOW_HEIGHT = 26;
   private readonly onEggCountChangedEvent = (event: Event) => this.onEggCountChanged(event);
 
@@ -34,6 +36,8 @@ export class EggCounterContainer extends Phaser.GameObjects.Container {
    * Sets up the container, creating the window, egg sprite, and egg count text.
    */
   private setup(): void {
+    // Optional: You could update this to support starting with 100+ eggs as well, 
+    // but usually, it initializes low or scales dynamically.
     const windowWidth = this.eggCount > 9 ? this.WINDOW_MEDIUM_WIDTH : this.WINDOW_DEFAULT_WIDTH;
 
     this.eggCountWindow = addWindow(5, 5, windowWidth, this.WINDOW_HEIGHT);
@@ -69,9 +73,15 @@ export class EggCounterContainer extends Phaser.GameObjects.Container {
 
     const eggCount = eggCountChangedEvent.eggCount;
 
-    if (eggCount < 10) {
+    // --- YOUR DYNAMIC RESIZING CODE GOES HERE ---
+    if (eggCount > 99) {
+      this.eggCountWindow.setSize(this.WINDOW_LARGE_WIDTH, this.WINDOW_HEIGHT);
+    } else if (eggCount > 9) {
+      this.eggCountWindow.setSize(this.WINDOW_MEDIUM_WIDTH, this.WINDOW_HEIGHT);
+    } else {
       this.setWindowToDefaultSize();
     }
+    // --------------------------------------------
 
     if (eggCount > 0) {
       this.eggCountText.setText(eggCount.toString());
