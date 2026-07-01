@@ -1,7 +1,7 @@
 import type { BattleScene } from "#app/battle-scene";
 import { globalScene } from "#app/global-scene";
-import { speciesDataRegistry } from "#app/global-species-data-registry";
 import { activeOverrides } from "#app/overrides";
+import { pokemonPrevolutions } from "#balance/pokemon-evolutions";
 import {
   BOOSTED_RARE_EGGMOVE_RATES,
   EGG_PITY_EPIC_THRESHOLD,
@@ -14,11 +14,6 @@ import {
   GACHA_EGG_HA_RATE,
   GACHA_LEGENDARY_UP_THRESHOLD_OFFSET,
   GACHA_SHINY_UP_SHINY_RATE,
-  HATCH_WAVES_COMMON_EGG,
-  HATCH_WAVES_EPIC_EGG,
-  HATCH_WAVES_LEGENDARY_EGG,
-  HATCH_WAVES_MANAPHY_EGG,
-  HATCH_WAVES_RARE_EGG,
   MANAPHY_EGG_MANAPHY_RATE,
   RARE_EGGMOVE_RATES,
   SAME_SPECIES_EGG_HA_RATE,
@@ -26,6 +21,9 @@ import {
   SHINY_EPIC_CHANCE,
   SHINY_VARIANT_CHANCE,
 } from "#balance/rates";
+import { speciesEggTiers } from "#balance/species-egg-tiers";
+import { speciesStarterCosts } from "#balance/starters";
+import type { PokemonSpecies } from "#data/pokemon-species";
 import { EggSourceType } from "#enums/egg-source-types";
 import { EggTier } from "#enums/egg-type";
 import { SpeciesId } from "#enums/species-id";
@@ -181,7 +179,7 @@ export class Egg {
 
       // Override egg tier and hatchwaves if species was given
       if (eggOptions?.species) {
-        this._tier = speciesDataRegistry.getEggTier(this.species);
+        this._tier = this.getEggTier();
         this._hatchWaves = eggOptions.hatchWaves ?? this.getEggTierDefaultHatchWaves();
       }
       // If species has no variant, set variantTier to common. This needs to
@@ -363,19 +361,8 @@ export class Egg {
   }
 
   private getEggTierDefaultHatchWaves(eggTier?: EggTier): number {
-    if (this._species === SpeciesId.PHIONE || this._species === SpeciesId.MANAPHY) {
-      return HATCH_WAVES_MANAPHY_EGG;
-    }
-
-    switch (eggTier ?? this._tier) {
-      case EggTier.COMMON:
-        return HATCH_WAVES_COMMON_EGG;
-      case EggTier.RARE:
-        return HATCH_WAVES_RARE_EGG;
-      case EggTier.EPIC:
-        return HATCH_WAVES_EPIC_EGG;
-    }
-    return HATCH_WAVES_LEGENDARY_EGG;
+    // All newly generated eggs are forced to require only 1 wave to hatch
+    return 1;
   }
 
   private rollEggTier(): EggTier {
@@ -437,16 +424,15 @@ export class Egg {
 
     const ignoredSpecies = [SpeciesId.PHIONE, SpeciesId.MANAPHY, SpeciesId.ETERNATUS];
 
-    let speciesPool = speciesDataRegistry
-      .getSpeciesForEggTier(this.tier)
-      .filter(s => ignoredSpecies.indexOf(s.speciesId) === -1);
+    let speciesPool = Object.keys(speciesEggTiers)
+      .filter(s => speciesEggTiers[s] === this.tier)
+      .map(s => Number.parseInt(s) as SpeciesId)
+      .filter(s => !Object.hasOwn(pokemonPrevolutions, s) && ignoredSpecies.indexOf(s) === -1);
 
     // If this is the 10th egg without unlocking something new, attempt to force it.
     if (globalScene.gameData.unlockPity[this.tier] >= 9) {
       const lockedPool = speciesPool.filter(
-        s =>
-          !globalScene.gameData.dexData[s.speciesId].caughtAttr
-          && !globalScene.gameData.eggs.some(e => e.species === s.speciesId),
+        s => !globalScene.gameData.dexData[s].caughtAttr && !globalScene.gameData.eggs.some(e => e.species === s),
       );
       if (lockedPool.length > 0) {
         // Skip this if everything is unlocked
@@ -456,7 +442,7 @@ export class Egg {
 
     // If egg variant is set to RARE or EPIC, filter species pool to only include ones with variants.
     if (this.variantTier && (this.variantTier === VariantTier.RARE || this.variantTier === VariantTier.EPIC)) {
-      speciesPool = speciesPool.filter(s => s.hasVariants());
+      speciesPool = speciesPool.filter(s => getPokemonSpecies(s).hasVariants());
     }
 
     /**
@@ -472,13 +458,9 @@ export class Egg {
      */
     let totalWeight = 0;
     const speciesWeights = new Array<number>(speciesPool.length);
-    for (const [idx, data] of speciesPool.entries()) {
+    for (const [idx, speciesId] of speciesPool.entries()) {
       // Accounts for species that have starter costs outside of the normal range for their EggTier
-      const speciesCostClamped = Phaser.Math.Clamp(
-        speciesDataRegistry.getStarterCost(data.speciesId),
-        minStarterValue,
-        maxStarterValue,
-      );
+      const speciesCostClamped = Phaser.Math.Clamp(speciesStarterCosts[speciesId], minStarterValue, maxStarterValue);
       const weight = Math.floor(
         (((maxStarterValue - speciesCostClamped) / (maxStarterValue - minStarterValue + 1)) * 1.5 + 1) * 100,
       );
@@ -491,7 +473,7 @@ export class Egg {
     const rand = randSeedInt(totalWeight);
     for (let s = 0; s < speciesWeights.length; s++) {
       if (rand < speciesWeights[s]) {
-        species = speciesPool[s].speciesId;
+        species = speciesPool[s];
         break;
       }
     }
@@ -587,14 +569,18 @@ export class Egg {
     }
   }
 
+  private getEggTier(): EggTier {
+    return speciesEggTiers[this.species] ?? EggTier.COMMON;
+  }
+
   // #endregion Private methods
 }
 
 export function getValidLegendaryGachaSpecies(): SpeciesId[] {
-  return speciesDataRegistry
-    .getSpeciesForEggTier(EggTier.LEGENDARY)
-    .filter(s => s.speciesId !== SpeciesId.ETERNATUS)
-    .map(s => s.speciesId);
+  return Object.entries(speciesEggTiers)
+    .filter(s => s[1] === EggTier.LEGENDARY)
+    .map(s => Number.parseInt(s[0]))
+    .filter(s => s !== SpeciesId.ETERNATUS);
 }
 
 export function getLegendaryGachaSpeciesForTimestamp(timestamp: number): SpeciesId {
@@ -618,4 +604,13 @@ export function getLegendaryGachaSpeciesForTimestamp(timestamp: number): Species
   ret = ret!; // tell TS compiler it's
 
   return ret;
+}
+
+/**
+ * Check for a given species EggTier Value
+ * @param pokemonSpecies - Species for which we will check the egg tier it belongs to
+ * @returns The egg tier of a given pokemon species
+ */
+export function getEggTierForSpecies(pokemonSpecies: PokemonSpecies): EggTier {
+  return speciesEggTiers[pokemonSpecies.getRootSpeciesId()];
 }
